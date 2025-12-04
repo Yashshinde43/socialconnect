@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { apiRequest } from '@/lib/api/client';
 import Link from 'next/link';
 
-export default function PasswordResetConfirmPage() {
+function PasswordResetConfirmForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [password, setPassword] = useState('');
@@ -121,6 +121,14 @@ export default function PasswordResetConfirmPage() {
         </form>
       </div>
     </div>
+  );
+}
+
+export default function PasswordResetConfirmPage() {
+  return (
+    <Suspense fallback={null}>
+      <PasswordResetConfirmForm />
+    </Suspense>
   );
 }
 
