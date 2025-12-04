@@ -25,7 +25,8 @@ export async function POST(request: NextRequest) {
       type: 'recovery',
     });
 
-    if (error) {
+    if (error || !data || !data.user) {
+      console.error('Verify OTP error or missing user:', error, data);
       return createErrorResponse('Invalid or expired reset token', 400);
     }
 
