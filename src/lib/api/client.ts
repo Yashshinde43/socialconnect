@@ -42,9 +42,10 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const { accessToken } = useAuthStore.getState();
   
-  const headers: HeadersInit = {
+  // Use a plain record so we can safely index into it
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...options.headers,
+    ...(options.headers as Record<string, string> | undefined),
   };
 
   if (accessToken) {
@@ -88,8 +89,8 @@ export async function apiRequestFormData<T>(
 ): Promise<T> {
   const { accessToken } = useAuthStore.getState();
   
-  const headers: HeadersInit = {
-    ...options.headers,
+  const headers: Record<string, string> = {
+    ...(options.headers as Record<string, string> | undefined),
   };
 
   if (accessToken) {
