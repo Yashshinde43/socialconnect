@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
     // Use the anon key client for signUp (service role doesn't support signUp)
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-    
+
     if (!supabaseUrl || !supabaseAnonKey) {
       return createErrorResponse('Supabase configuration missing', 500);
     }
@@ -95,22 +95,29 @@ export async function POST(request: NextRequest) {
       return createErrorResponse(signUpError?.message || 'Failed to create user', 400);
     }
 
-    // Create profile
+    // Create or update profile.
+    // In some environments (especially production), you might already have a trigger
+    // that inserts into `profiles` on user signup. Using `upsert` avoids duplicate-key
+    // errors when a profile row is created automatically by Supabase.
     const { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .insert({
-        id: signUpData.user.id,
-        username,
-        email,
-        first_name: first_name || null,
-        last_name: last_name || null,
-        is_verified: false,
-      })
+      .upsert(
+        {
+          id: signUpData.user.id,
+          username,
+          email,
+          first_name: first_name || null,
+          last_name: last_name || null,
+          is_verified: false,
+        },
+        { onConflict: 'id' }
+      )
       .select()
       .single();
 
     if (profileError || !profile) {
-      // Clean up auth user if profile creation fails
+      console.error('Profile creation error:', profileError);
+      // Clean up auth user if profile creation fails for some reason other than an existing profile.
       await supabaseAdmin.auth.admin.deleteUser(signUpData.user.id);
       return createErrorResponse('Failed to create profile', 500);
     }
