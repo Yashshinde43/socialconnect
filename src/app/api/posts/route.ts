@@ -99,7 +99,8 @@ export async function POST(request: NextRequest) {
       if (!uploadResult.success) {
         return createErrorResponse(uploadResult.error || 'Failed to upload image', 400);
       }
-      image_url = uploadResult.url;
+      // uploadResult.url can be undefined at type level; normalize to null when missing
+      image_url = uploadResult.url ?? null;
     }
 
     // Create post
