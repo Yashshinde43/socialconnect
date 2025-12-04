@@ -8,10 +8,11 @@ import { apiRequest } from '@/lib/api/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { InputGroup, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
-import { LogIn, Mail, Lock, XCircle, CheckCircle2, ArrowRight, KeyRound } from 'lucide-react';
+import { LogIn, Mail, Lock, XCircle, CheckCircle2, ArrowRight, KeyRound, Eye, EyeOff } from 'lucide-react';
 
 function LoginForm() {
   const router = useRouter();
@@ -21,6 +22,7 @@ function LoginForm() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [verificationPending, setVerificationPending] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     // Check if user was redirected from registration
@@ -111,15 +113,26 @@ function LoginForm() {
                   <Lock className="h-4 w-4" />
                   Password
                 </Label>
-                <Input
-                  id="password"
-                  type="password"
-                  required
-                  placeholder="••••••••"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  autoComplete="current-password"
-                />
+                <InputGroup>
+                  <InputGroupInput
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    placeholder="••••••••"
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    autoComplete="current-password"
+                  />
+                  <InputGroupButton
+                    type="button"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    size="icon-sm"
+                    variant="ghost"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </InputGroupButton>
+                </InputGroup>
               </div>
             </div>
 
