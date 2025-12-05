@@ -158,6 +158,41 @@ CREATE TRIGGER update_comment_count
   AFTER INSERT OR DELETE ON public.comments
   FOR EACH ROW EXECUTE FUNCTION update_post_comment_count();
 
+-- Function to automatically create profile when user is created in auth.users
+-- This is a fallback - the registration route will still create/update the profile
+-- with proper username validation. This trigger ensures a profile exists even
+-- if the registration route fails partway through.
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Only create profile if it doesn't already exist
+  -- Use a temporary username that will be updated by the registration route
+  INSERT INTO public.profiles (id, email, username, first_name, last_name, is_verified)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(
+      NEW.raw_user_meta_data->>'username',
+      'user_' || substr(NEW.id::text, 1, 8)
+    ),
+    NEW.raw_user_meta_data->>'first_name',
+    NEW.raw_user_meta_data->>'last_name',
+    COALESCE((NEW.email_confirmed_at IS NOT NULL), false)
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    email = EXCLUDED.email,
+    first_name = COALESCE(EXCLUDED.first_name, profiles.first_name),
+    last_name = COALESCE(EXCLUDED.last_name, profiles.last_name);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Trigger to create profile when user signs up
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
 -- Enable Row Level Security
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.posts ENABLE ROW LEVEL SECURITY;

@@ -58,7 +58,9 @@ export async function apiRequest<T>(
   });
 
   // If 401 and we have a refresh token, try to refresh
-  if (response.status === 401 && useAuthStore.getState().refreshToken) {
+  // Skip refresh for auth endpoints (login, register, etc.) as they don't require auth
+  const isAuthEndpoint = endpoint.includes('/api/auth/');
+  if (response.status === 401 && useAuthStore.getState().refreshToken && !isAuthEndpoint) {
     const newAccessToken = await refreshAccessToken();
     
     if (newAccessToken) {
@@ -76,7 +78,14 @@ export async function apiRequest<T>(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw new Error(error.error || `HTTP error! status: ${response.status}`);
+    const errorMessage = error.error || `HTTP error! status: ${response.status}`;
+    
+    // For auth endpoints, don't throw token-related errors as they're expected
+    if (isAuthEndpoint && response.status === 401) {
+      throw new Error(errorMessage);
+    }
+    
+    throw new Error(errorMessage);
   }
 
   return response.json();

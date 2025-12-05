@@ -97,109 +97,127 @@ export async function POST(request: NextRequest) {
 
     const userId = signUpData.user.id;
 
-    // Verify the user exists in auth.users before creating profile
-    // There can be a slight delay between signUp and the user being available in the database
+    // Wait a moment for the database trigger to potentially create the profile
+    // and for the user to be fully committed to auth.users
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Verify the user exists in auth.users using admin API
     let userExists = false;
     let retries = 0;
-    const maxRetries = 5;
+    const maxRetries = 10;
     
     while (!userExists && retries < maxRetries) {
-      const { data: authUser, error: authUserError } = await supabaseAdmin.auth.admin.getUserById(userId);
-      
-      if (authUser?.user && !authUserError) {
-        userExists = true;
-        break;
+      try {
+        const { data: authUser, error: authUserError } = await supabaseAdmin.auth.admin.getUserById(userId);
+        
+        if (authUser?.user && !authUserError) {
+          userExists = true;
+          break;
+        }
+      } catch (error) {
+        console.error(`Attempt ${retries + 1} to verify user failed:`, error);
       }
       
-      // Wait a bit before retrying (exponential backoff)
-      await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, retries)));
+      // Exponential backoff: 200ms, 400ms, 800ms, 1600ms, etc.
+      if (!userExists && retries < maxRetries - 1) {
+        await new Promise(resolve => setTimeout(resolve, 200 * Math.pow(2, retries)));
+      }
       retries++;
     }
 
     if (!userExists) {
-      console.error('User not found in auth.users after signup');
+      console.error('User not found in auth.users after signup after', maxRetries, 'attempts');
       // Clean up auth user if it was created
       try {
         await supabaseAdmin.auth.admin.deleteUser(userId);
       } catch (deleteError) {
         console.error('Failed to cleanup user:', deleteError);
       }
-      return createErrorResponse('Failed to verify user creation', 500);
+      return createErrorResponse('Failed to verify user creation. Please try again.', 500);
     }
 
-    // Create or update profile.
-    // In some environments (especially production), you might already have a trigger
-    // that inserts into `profiles` on user signup. Using `upsert` avoids duplicate-key
-    // errors when a profile row is created automatically by Supabase.
-    const { data: profile, error: profileError } = await supabaseAdmin
-      .from('profiles')
-      .upsert(
-        {
+    // Check if profile was already created by database trigger
+    let profile = null;
+    let profileError = null;
+    let retriesProfile = 0;
+    const maxRetriesProfile = 5;
+
+    while (!profile && retriesProfile < maxRetriesProfile) {
+      // First, try to get existing profile (might have been created by trigger)
+      const { data: existingProfile } = await supabaseAdmin
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (existingProfile) {
+        // Profile exists, update it with our data
+        const { data: updatedProfile, error: updateError } = await supabaseAdmin
+          .from('profiles')
+          .update({
+            username,
+            email,
+            first_name: first_name || null,
+            last_name: last_name || null,
+            // Don't overwrite is_verified if it was set by trigger
+          })
+          .eq('id', userId)
+          .select()
+          .single();
+
+        if (!updateError && updatedProfile) {
+          profile = updatedProfile;
+          break;
+        }
+      }
+
+      // If profile doesn't exist, try to create it
+      const { data: newProfile, error: newProfileError } = await supabaseAdmin
+        .from('profiles')
+        .insert({
           id: userId,
           username,
           email,
           first_name: first_name || null,
           last_name: last_name || null,
           is_verified: false,
-        },
-        { onConflict: 'id' }
-      )
-      .select()
-      .single();
+        })
+        .select()
+        .single();
 
-    if (profileError) {
-      console.error('Profile creation error:', profileError);
-      
-      // Check if it's a foreign key constraint error (user doesn't exist)
-      if (profileError.code === '23503') {
-        console.error('Foreign key constraint violation - user may not be fully committed yet');
-        // Try one more time after a short delay
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        const { data: retryProfile, error: retryError } = await supabaseAdmin
-          .from('profiles')
-          .upsert(
-            {
-              id: userId,
-              username,
-              email,
-              first_name: first_name || null,
-              last_name: last_name || null,
-              is_verified: false,
-            },
-            { onConflict: 'id' }
-          )
-          .select()
-          .single();
-        
-        if (retryError || !retryProfile) {
-          console.error('Profile creation retry failed:', retryError);
-          try {
-            await supabaseAdmin.auth.admin.deleteUser(userId);
-          } catch (deleteError) {
-            console.error('Failed to cleanup user:', deleteError);
-          }
-          return createErrorResponse('Failed to create profile', 500);
+      if (!newProfileError && newProfile) {
+        profile = newProfile;
+        break;
+      }
+
+      // If we got a foreign key error, wait and retry
+      if (newProfileError?.code === '23503') {
+        profileError = newProfileError;
+        retriesProfile++;
+        if (retriesProfile < maxRetriesProfile) {
+          await new Promise(resolve => setTimeout(resolve, 500 * retriesProfile));
+          continue;
         }
       } else {
-        // Other errors - clean up and return
-        try {
-          await supabaseAdmin.auth.admin.deleteUser(userId);
-        } catch (deleteError) {
-          console.error('Failed to cleanup user:', deleteError);
-        }
-        return createErrorResponse('Failed to create profile', 500);
+        profileError = newProfileError;
+        break;
       }
     }
 
-    if (!profile) {
-      console.error('Profile was not created');
+    if (profileError || !profile) {
+      console.error('Profile creation error after retries:', profileError);
+      // Clean up auth user if profile creation fails
       try {
         await supabaseAdmin.auth.admin.deleteUser(userId);
       } catch (deleteError) {
         console.error('Failed to cleanup user:', deleteError);
       }
-      return createErrorResponse('Failed to create profile', 500);
+      return createErrorResponse(
+        profileError?.code === '23503' 
+          ? 'User account created but profile setup failed. Please contact support.'
+          : 'Failed to create profile. Please try again.',
+        500
+      );
     }
 
     // Do NOT issue JWTs yet – user must verify email first.
