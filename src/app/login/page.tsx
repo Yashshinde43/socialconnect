@@ -38,11 +38,17 @@ function LoginForm() {
     setLoading(true);
 
     try {
+      // Detect if input is email or username based on presence of '@'
+      const isEmail = formData.email.includes('@');
+      const loginData = isEmail
+        ? { email: formData.email, password: formData.password }
+        : { username: formData.email, password: formData.password };
+
       const data = await apiRequest<{ access_token: string; refresh_token: string; user: any }>(
         '/api/auth/login',
         {
           method: 'POST',
-          body: JSON.stringify(formData),
+          body: JSON.stringify(loginData),
         }
       );
 
